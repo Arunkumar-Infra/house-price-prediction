@@ -6,89 +6,85 @@ trigger:
 pool:
   vmImage: 'ubuntu-latest'
 
+variables:
+  PYTHON_VERSION: '3.12'
+  SONARQUBE_SERVICE_CONNECTION: 'SonarQube'
+  SONAR_ORGANIZATION_NAME: 'Arunkumar J'
+  SONAR_ORGANIZATION_KEY: 'arunkumar-infra'
+  SONAR_PROJECT_KEY: 'house-price-prediction'
+  SONAR_PROJECT_NAME: 'House Price Prediction'
+  SONAR_PROJECT_VERSION: '1.0'
+
 steps:
-
-# 1. Checkout source code
 - checkout: self
-  displayName: 'Checkout Source Code'
+  displayName: 'Checkout source code'
 
-
-# 2. Install Python
 - task: UsePythonVersion@0
+  displayName: 'Use Python $(PYTHON_VERSION)'
   inputs:
-    versionSpec: '3.8'
+    versionSpec: '$(PYTHON_VERSION)'
     addToPath: true
-  displayName: 'Setup Python 3.8'
 
-
-# 3. Upgrade pip
 - script: |
     python -m pip install --upgrade pip
-  displayName: 'Upgrade pip'
-
-
-# 4. Install project dependencies
-- script: |
     pip install -r requirement.txt
-  displayName: 'Install Dependencies'
+    pip install pytest pytest-cov pytest-html
+  displayName: 'Install project dependencies'
 
-
-# 5. Install unit test dependencies
-- script: |
-    pip install pytest
-    pip install pytest-html
-  displayName: 'Install Unit Test Dependencies'
-
-
-# 6. Check Python files
-- script: |
-    python -m py_compile app.py
-    python -m py_compile house.py
-  displayName: 'Validate Python Code'
-
-
-# 7. Create test result folder
 - script: |
     mkdir -p test-results
-  displayName: 'Create Test Result Folder'
-
-
-# 8. Run 50 unit tests
-- script: |
-    pytest tests/test_app_50_cases.py \
+    pytest test_app_50_cases.py \
       -v \
-      -ra \
       --junitxml=test-results/junit.xml \
       --html=test-results/unit-test-report.html \
       --self-contained-html
-  displayName: 'Run 50 Unit Tests'
+  displayName: 'Run unit tests'
   continueOnError: true
 
-
-# 9. Publish unit test results
 - task: PublishTestResults@2
   condition: always()
+  displayName: 'Publish unit test results'
   inputs:
     testResultsFormat: 'JUnit'
     testResultsFiles: 'test-results/junit.xml'
     testRunTitle: 'House Price Prediction Unit Tests'
     failTaskOnFailedTests: false
-  displayName: 'Publish Unit Test Results'
 
+- script: |
+    pytest test_app_50_cases.py --cov=. --cov-report=xml:coverage.xml --cov-report=term-missing
+  displayName: 'Generate coverage report'
+  continueOnError: true
 
-# 10. Publish HTML test report
 - task: PublishPipelineArtifact@1
   condition: always()
+  displayName: 'Publish test report artifacts'
   inputs:
     targetPath: 'test-results'
     artifact: 'unit-test-report'
     publishLocation: 'pipeline'
-  displayName: 'Publish Unit Test Report'
 
+- task: SonarQubePrepare@7
+  displayName: 'Prepare SonarQube analysis'
+  inputs:
+    SonarQube: '$(SONARQUBE_SERVICE_CONNECTION)'
+    scannerMode: 'CLI'
+    configMode: 'manual'
+    cliProjectKey: '$(SONAR_PROJECT_KEY)'
+    cliProjectName: '$(SONAR_PROJECT_NAME)'
+    cliProjectVersion: '$(SONAR_PROJECT_VERSION)'
+    extraProperties: |
+      sonar.organization=$(SONAR_ORGANIZATION_KEY)
+      sonar.language=py
+      sonar.sources=.
+      sonar.tests=.
+      sonar.test.inclusions=**/test*.py
+      sonar.exclusions=**/venv/**,**/.venv/**,**/templates/**,**/static/**,**/node_modules/**,**/*.html
+      sonar.python.version=3.12
+      sonar.python.coverage.reportPaths=coverage.xml
+      sonar.python.xunit.reportPath=test-results/junit.xml
 
-# 11. Start Flask application
-- script: |
-    python app.py &
-    sleep 10
-    echo "Flask application started successfully"
-  displayName: 'Start Flask Application'
+- task: SonarQubeAnalyze@7
+  displayName: 'Run SonarQube analysis'
+
+- task: SonarQubePublish@7
+  displayName: 'Publish SonarQube results'
